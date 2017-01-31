@@ -114,8 +114,12 @@ def main(argv):
     for num in sorted_deps:
         module_path = mnum_to_name[num]
         if module_path != "":
-            with open(module_path, "r") as f:
-                lines = f.readlines()
+            try:
+                with open(module_path, "r") as f:
+                    lines = f.readlines()
+            except IOError:
+                print "[[ INFO ]]", module_path, " not found, ignored"
+                break
             for line in lines:
                 if line.strip()[:8] != "#include":
                     output.append(line)
@@ -125,8 +129,13 @@ def main(argv):
         module_path = mnum_to_name[num]
         if module_path != "":
             if filename(module_path).split(".")[1] == "h":
-                with open(module_path.replace("include/", "src/").replace(".h", ".cpp" if cxx == "cpp" else ".c"), "r") as f:
-                    lines = f.readlines()
+                source_path = module_path.replace("include/", "src/").replace(".h", ".cpp" if cxx == "cpp" else ".c")
+                try:
+                    with open(source_path, "r") as f:
+                        lines = f.readlines()
+                except IOError:
+                    print "[[ INFO ]]", source_path, "not found, ignored"
+                    break 
                 for line in lines:
                     if line.strip()[:8] != "#include":
                         output.append(line)
