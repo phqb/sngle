@@ -1,0 +1,143 @@
+#!/usr/bin/python2
+
+import os, sys, getopt
+
+sys.path.append("./lib")
+
+import tsort
+
+def dirname(path):
+    return "/".join(path.split("/")[:-1])
+
+def filename(path):
+    return path.split("/")[-1]
+
+def unique(seq):
+    seen = set()
+    seen_add = seen.add
+    return [x for x in seq if not (x in seen or seen_add(x))]
+
+def help():
+    print 'usage: -i <inputfile> -o <outputfile>'
+
+def resolve_deps(module_path):
+    deps_graph = []
+    gcc_headers = []
+
+    def traversal(required_by, module_path):
+        inc_name = filename(module_path)
+        dir = dirname(module_path) if os.getcwd()[0] in ("/", "~") else os.getcwd() + "/" + dirname(module_path)
+        try:
+            os.chdir(dir)
+        except OSError:
+            print "[[ ERROR ]] dir not found:", dir
+            return
+        inc_dir = os.getcwd()
+        lines = []
+        try:
+            with open(inc_name, "r") as f:
+                lines = f.readlines()
+        except IOError:
+            print "[[ WARN ]]", inc_name, "not found in", inc_dir
+            return 
+        inc_path = inc_dir + "/" + inc_name
+        deps_graph.append((inc_path, required_by))
+        for line in lines:
+            stripped = line.strip()
+            if stripped[:8] == "#include":
+                next_inc_name = stripped.replace("  ", " ").split(" ")[1]
+                if next_inc_name[0] == '<':
+                    print "[[ INFO ]] ignore gcc include header", next_inc_name
+                    gcc_headers.append(next_inc_name[1:-1])
+                else:
+                    traversal(inc_path, inc_dir + "/" + next_inc_name[1:-1])
+
+    traversal("", module_path)
+
+    return (unique(deps_graph), unique(gcc_headers))
+
+def main(argv):
+    inp = ''
+    out = ''
+    cxx = "cpp"
+    old_dir = os.getcwd()
+
+    try:
+        opts, args = getopt.getopt(argv,"hi:o:c:")
+    except getopt.GetoptError:
+        help()
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt == '-h':
+            help()
+            sys.exit()
+        elif opt == "-i":
+            inp = arg
+        elif opt == "-o":
+            out = arg
+        elif opt == "-c":
+            cxx = arg
+        
+    if inp == "":
+        print "[[ ERROR ]] no input file"
+        return 1
+
+    deps_graph, gcc_headers = resolve_deps(inp)
+
+    modules_list = unique([u for u, _ in deps_graph] + [v for _, v in deps_graph])
+    mname_to_num = {}
+    mnum_to_name = {}
+
+    modules_count = 0
+    for m in modules_list:
+        modules_count += 1
+        mnum_to_name[modules_count] = m
+        mname_to_num[m] = modules_count
+
+    compress_graph = []
+
+    for u, v in deps_graph:
+        compress_graph.append((mname_to_num[u], mname_to_num[v]))
+
+    sorted_deps = tsort.tsort(compress_graph, len(modules_list))
+
+    if sorted_deps == []:
+        print "[[ ERROR ]] could't resolve dependency"
+        sys.exit(1)
+
+    output = []
+    for h in gcc_headers:
+        output.append("#include <" + h + ">\n")
+
+    lines = []
+
+    for num in sorted_deps:
+        module_path = mnum_to_name[num]
+        if module_path != "":
+            with open(module_path, "r") as f:
+                lines = f.readlines()
+            for line in lines:
+                if line.strip()[:8] != "#include":
+                    output.append(line)
+            output.append('\n')
+        
+    for num in sorted_deps:
+        module_path = mnum_to_name[num]
+        if module_path != "":
+            if filename(module_path).split(".")[1] == "h":
+                with open(module_path.replace("include/", "src/").replace(".h", ".cpp" if cxx == "cpp" else ".c"), "r") as f:
+                    lines = f.readlines()
+                for line in lines:
+                    if line.strip()[:8] != "#include":
+                        output.append(line)
+                output.append('\n')
+
+    os.chdir(old_dir)
+    fout = open(out, "w")
+    try:
+        fout.writelines(output)
+    finally:
+        fout.close()
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
