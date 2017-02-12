@@ -1,10 +1,6 @@
 #!/usr/bin/python2
 
-import os, sys, getopt
-
-sys.path.append("./lib")
-
-import tsort
+import os, sys, getopt, lib.tsort.tsort
 
 def dirname(path):
     return "/".join(path.split("/")[:-1])
